@@ -11,9 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"os/exec"
+
 	"../errorcheck"
+	"github.com/bwmarrin/dgvoice"
 	"github.com/bwmarrin/discordgo"
-	//youtube "github.com/knadh/go-get-youtube"
 )
 
 var bot *discordgo.Session
@@ -23,21 +25,19 @@ var botUser discordgo.User
 // BotPerfix _
 var BotPerfix string = "/"
 var voiceConnection *discordgo.VoiceConnection
-
-// MusicPath _
-var MusicPath string = "/mnt/d/Music/"
-
+var musicStop chan bool
+var playing bool = false
 var clear string = `
 ‎`
 
 // Start _
 func Start(token string) {
 	var err error
+	musicStop = make(chan bool)
 	bot, err = discordgo.New("Bot " + token)
 	errorcheck.Check(err)
 	botUser, _ := bot.User("@me")
 	botID = botUser.ID
-	fmt.Println(botID)
 	bot.AddHandler(messageHandler)
 	err = bot.Open()
 	errorcheck.Check(err)
@@ -50,7 +50,8 @@ func Start(token string) {
 }
 
 func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == botID {
+	// Look for bots
+	if m.Author.Bot {
 		return
 	}
 
@@ -67,41 +68,37 @@ func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Single word commands
 	switch m.Content {
 	case BotPerfix + "ping":
-		_, err := s.ChannelMessageSend(m.ChannelID, "pong")
-		errorcheck.Check(err)
+		cmdPing(s, m)
 		return
 
 	case BotPerfix + "join":
-		vs, err := findUserVoiceState(bot, m.Author.ID)
-		errorcheck.Check(err)
-		voiceConnection, _ = bot.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
+		cmdJoin(s, m)
 		return
-	case BotPerfix + "disconnect":
-		voiceConnection.Disconnect()
+	case BotPerfix + "dc":
+		cmdDisconnect()
 		return
 	case BotPerfix + "clear":
-		_, err := s.ChannelMessageSend(m.ChannelID, strings.Repeat(clear, 150))
-		errorcheck.Check(err)
+		cmdClear(s, m)
 		return
+	case BotPerfix + "stop":
+		cmdStop()
 	}
 
-	// Commands with arguments
-	// 1st: play
-	// if strings.HasPrefix(m.Content, BotPerfix+"play") {
-	// 	youtube, err := youtube.Get(parts[1])
-	// 	options := &youtube.Options{
-	// 		Rename: true,
-	// 		Resume: true,
-	// 		Mp3:    true,
-	// 	}
-	// 	video.Download(0, MusicPath+"music.mp3", options)
-	// 	dgvoice.PlayAudioFile(voiceConnection, MusicPath+"music.mp3", make(chan bool))
-	// }
+	//Commands with arguments
+	if strings.HasPrefix(m.Content, BotPerfix+"play") {
+		cmdPlay(s, m)
+		return
+	}
 
 	if strings.HasPrefix(m.Content, BotPerfix+"random") {
 		cmdRandom(s, m)
 		return
 	}
+}
+
+func cmdPing(s *discordgo.Session, m *discordgo.MessageCreate) {
+	_, err := s.ChannelMessageSend(m.ChannelID, "pong")
+	errorcheck.Check(err)
 }
 
 func cmdRandom(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -113,6 +110,39 @@ func cmdRandom(s *discordgo.Session, m *discordgo.MessageCreate) {
 	errorcheck.Check(err)
 	i := rand.Intn(max-min+1) + min
 	_, err = s.ChannelMessageSend(m.ChannelID, m.Author.Mention()+" "+strconv.FormatInt(int64(i), 10))
+}
+
+func cmdPlay(s *discordgo.Session, m *discordgo.MessageCreate) {
+	parts := strings.Split(m.Content, " ")
+	err := os.Remove("./temp.mp3")
+	errorcheck.Check(err)
+	cmd := exec.Command("youtube-dl", "-o", "./temp.mp3", parts[1], "-x", "--audio-format", "mp3")
+	err = cmd.Run()
+	errorcheck.Check(err)
+	cmdStop()
+	time.Sleep(time.Second)
+	dgvoice.PlayAudioFile(voiceConnection, "./temp.mp3", musicStop)
+}
+
+func cmdStop() {
+	cmd := exec.Command("pkill", "ffmpeg")
+	err := cmd.Run()
+	errorcheck.Check(err)
+}
+
+func cmdJoin(s *discordgo.Session, m *discordgo.MessageCreate) {
+	vs, err := findUserVoiceState(bot, m.Author.ID)
+	errorcheck.Check(err)
+	voiceConnection, _ = bot.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
+}
+
+func cmdDisconnect() {
+	voiceConnection.Disconnect()
+}
+
+func cmdClear(s *discordgo.Session, m *discordgo.MessageCreate) {
+	_, err := s.ChannelMessageSend(m.ChannelID, strings.Repeat(clear, 200))
+	errorcheck.Check(err)
 }
 
 func findUserVoiceState(session *discordgo.Session, userid string) (*discordgo.VoiceState, error) {
