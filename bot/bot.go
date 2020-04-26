@@ -13,6 +13,7 @@ import (
 
 	"os/exec"
 
+	"../config"
 	"../errorcheck"
 	"github.com/bwmarrin/dgvoice"
 	"github.com/bwmarrin/discordgo"
@@ -22,22 +23,24 @@ var bot *discordgo.Session
 var botID string
 var botUser discordgo.User
 
-// BotPerfix _
-var BotPerfix string = "/"
 var voiceConnection *discordgo.VoiceConnection
 var musicStop chan bool
-var playing bool = false
 var clear string = `
 ‎`
+var conf config.Config
 
 // Start _
-func Start(token string) {
+func Start(c config.Config) {
 	var err error
+	conf = c
 	musicStop = make(chan bool)
-	bot, err = discordgo.New("Bot " + token)
+	bot, err = discordgo.New("Bot " + conf.Token)
 	errorcheck.Check(err)
 	botUser, _ := bot.User("@me")
 	botID = botUser.ID
+
+	bot.UpdateStatus(0, conf.Status)
+
 	bot.AddHandler(messageHandler)
 	err = bot.Open()
 	errorcheck.Check(err)
@@ -67,30 +70,30 @@ func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// Single word commands
 	switch m.Content {
-	case BotPerfix + "ping":
+	case conf.Prefix + "ping":
 		cmdPing(s, m)
 		return
 
-	case BotPerfix + "join":
+	case conf.Prefix + "join":
 		cmdJoin(s, m)
 		return
-	case BotPerfix + "dc":
+	case conf.Prefix + "dc":
 		cmdDisconnect()
 		return
-	case BotPerfix + "clear":
+	case conf.Prefix + "clear":
 		cmdClear(s, m)
 		return
-	case BotPerfix + "stop":
+	case conf.Prefix + "stop":
 		cmdStop()
 	}
 
 	//Commands with arguments
-	if strings.HasPrefix(m.Content, BotPerfix+"play") {
+	if strings.HasPrefix(m.Content, conf.Prefix+"play") {
 		cmdPlay(s, m)
 		return
 	}
 
-	if strings.HasPrefix(m.Content, BotPerfix+"random") {
+	if strings.HasPrefix(m.Content, conf.Prefix+"random") {
 		cmdRandom(s, m)
 		return
 	}
@@ -117,9 +120,10 @@ func cmdPlay(s *discordgo.Session, m *discordgo.MessageCreate) {
 	err := os.Remove("./temp.mp3")
 	errorcheck.Check(err)
 	cmd := exec.Command("youtube-dl", "-o", "./temp.mp3", parts[1], "-x", "--audio-format", "mp3")
-	err = cmd.Run()
+	_ = cmd.Run()
 	errorcheck.Check(err)
 	cmdStop()
+	cmdJoin(s, m)
 	time.Sleep(time.Second)
 	dgvoice.PlayAudioFile(voiceConnection, "./temp.mp3", musicStop)
 }

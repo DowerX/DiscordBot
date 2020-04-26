@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-
+	"./config"
 	"./bot"
 )
 
 func main() {
-	fmt.Println("Parsing token")
-	bot.Start(getToken())
+	fmt.Println("Starting...")
+
+	bot.Start(config.GetConfig())
 }
